@@ -96,13 +96,14 @@ class CartItem(db.Model):
 
 
 class Order(db.Model):
-    """A placed order. Stock is reserved when the row is created."""
+    """A checkout. Stock is reserved while status is pending, then kept once paid."""
 
     __tablename__ = "orders"
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
-    status = db.Column(db.String(32), nullable=False, default="placed")
+    # pending until Stripe confirms payment, then paid. cancelled restores stock.
+    status = db.Column(db.String(32), nullable=False, default="pending")
     subtotal = db.Column(db.Numeric(10, 2), nullable=False)
     shipping = db.Column(db.Numeric(10, 2), nullable=False)
     total = db.Column(db.Numeric(10, 2), nullable=False)
@@ -113,6 +114,8 @@ class Order(db.Model):
     shipping_city = db.Column(db.String(120), nullable=False)
     shipping_postal_code = db.Column(db.String(32), nullable=False)
     shipping_country = db.Column(db.String(80), nullable=False, default="US")
+    stripe_checkout_session_id = db.Column(db.String(255), nullable=True, unique=True)
+    stripe_payment_intent_id = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
 
     user = db.relationship("User", back_populates="orders")
