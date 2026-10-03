@@ -3,4 +3,5 @@ Flask-CORS>=5.0.0,<7
 Flask-SQLAlchemy>=3.1.0,<4
 python-dotenv>=1.0.0,<2
 gunicorn>=22.0.0,<24
+stripe>=11.0.0,<14
 pytest>=8.0.0,<9

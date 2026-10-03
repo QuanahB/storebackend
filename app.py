@@ -28,6 +28,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from config import Config
 from extensions import db
+from schema import ensure_sqlite_columns
 from seed import seed_if_empty
 
 
@@ -97,6 +98,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
         import models  # noqa: F401
 
         db.create_all()
+        ensure_sqlite_columns()
         seed_if_empty()
 
     return app

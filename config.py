@@ -36,6 +36,10 @@ class Config:
 
     CORS_ORIGINS = _origins()
     FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:4321")
+    # Stripe secret key (sk_test_... or sk_live_...). Never sent to the browser.
+    STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+    # Signing secret (whsec_...) from `stripe listen` or the Dashboard webhook.
+    STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     MAX_CONTENT_LENGTH = 1_000_000
 
     # Flat shipping until a carrier rate is connected. Free over this subtotal.

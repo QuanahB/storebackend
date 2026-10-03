@@ -48,7 +48,9 @@ def metrics():
     units = sum(product.stock for product in products)
     low = sum(1 for product in products if 0 < product.stock <= LOW_STOCK)
     sold_out = sum(1 for product in products if product.stock <= 0)
-    open_orders = Order.query.filter_by(status="placed").count()
+    pending_orders = Order.query.filter_by(status="pending").count()
+    paid_orders = Order.query.filter(Order.status.in_(("paid", "placed"))).count()
+    open_orders = pending_orders + paid_orders
     notes = ContactMessage.query.count()
 
     if sold_out or low:
@@ -58,7 +60,14 @@ def metrics():
         health = "OK"
         health_hint = "Every style still has stock"
 
-    order_hint = "No orders yet" if open_orders == 0 else "Placed and waiting to ship"
+    if open_orders == 0:
+        order_hint = "No orders yet"
+    elif pending_orders and paid_orders:
+        order_hint = f"{pending_orders} awaiting payment, {paid_orders} waiting to ship"
+    elif pending_orders:
+        order_hint = "Awaiting Stripe payment"
+    else:
+        order_hint = "Paid and waiting to ship"
     note_hint = "Contact form messages waiting" if notes else "Inbox is clear"
 
     return jsonify(
@@ -115,7 +124,7 @@ def activity():
         events.append(
             {
                 "id": f"act_order_{order.id}",
-                "title": f"Order #{order.id} placed",
+                "title": f"Order #{order.id} {_order_label(order.status)}",
                 "detail": f"{order.shipping_name} · {names}",
                 "timestamp": humanize(order.created_at),
                 "_at": order.created_at,
@@ -146,6 +155,15 @@ def activity():
             }
         )
     return jsonify(public)
+
+
+def _order_label(status: str) -> str:
+    return {
+        "pending": "awaiting payment",
+        "paid": "paid",
+        "placed": "placed",
+        "cancelled": "cancelled",
+    }.get(status, status)
 
 
 def _status(pieces: list[Product]) -> str:

@@ -1,6 +1,7 @@
 """API contract tests for the MockMSPaint store backend."""
 
 import pytest
+import stripe
 
 from app import create_app
 
@@ -24,8 +25,49 @@ def app(tmp_path):
             "TESTING": True,
             "SQLALCHEMY_DATABASE_URI": f"sqlite:///{database}",
             "SECRET_KEY": "test-secret",
+            "STRIPE_SECRET_KEY": "sk_test_placeholder",
+            "STRIPE_WEBHOOK_SECRET": "whsec_test",
         }
     )
+
+
+class FakeStripeSession:
+    def __init__(self, session_id, metadata, client_reference_id):
+        self.id = session_id
+        self.url = f"https://checkout.stripe.com/c/pay/{session_id}"
+        self.payment_status = "unpaid"
+        self.payment_intent = None
+        self.metadata = metadata
+        self.client_reference_id = client_reference_id
+
+
+@pytest.fixture(autouse=True)
+def stripe_checkout(monkeypatch):
+    """Keep checkout tests off the real Stripe network."""
+    sessions = {}
+    counter = {"n": 0}
+
+    def create(**kwargs):
+        counter["n"] += 1
+        session = FakeStripeSession(
+            f"cs_test_{counter['n']}",
+            kwargs.get("metadata") or {},
+            kwargs.get("client_reference_id"),
+        )
+        sessions[session.id] = session
+        sessions["last"] = session
+        sessions["last_kwargs"] = kwargs
+        return session
+
+    def retrieve(session_id):
+        session = sessions.get(session_id)
+        if session is None:
+            raise stripe.InvalidRequestError("missing", "session_id")
+        return session
+
+    monkeypatch.setattr("stripe.checkout.Session.create", create)
+    monkeypatch.setattr("stripe.checkout.Session.retrieve", retrieve)
+    return sessions
 
 
 @pytest.fixture
@@ -125,7 +167,7 @@ def test_dashboard_shapes_match_frontend_types(client):
         assert set(item) == ACTIVITY_KEYS
 
 
-def test_cart_checkout_reserves_stock_and_hides_the_order(client, app):
+def test_cart_checkout_reserves_stock_and_hides_the_order(client, app, stripe_checkout):
     tee = client.get("/products/slug/scribble-pocket-tee").get_json()
     added = client.post(
         "/cart/items",
@@ -148,11 +190,21 @@ def test_cart_checkout_reserves_stock_and_hides_the_order(client, app):
 
     placed = client.post("/checkout", json=SHIPPING)
     assert placed.status_code == 201
-    order = placed.get_json()["order"]
-    assert order["status"] == "placed"
+    payload = placed.get_json()
+    order = payload["order"]
+    assert payload["checkout_url"].startswith("https://checkout.stripe.com/")
+    assert order["status"] == "pending"
     assert order["email"] == "buyer@example.com"
     assert order["total"] == 56.0
     assert order["items"][0]["size"] == "M"
+
+    line_names = [
+        item["price_data"]["product_data"]["name"]
+        for item in stripe_checkout["last_kwargs"]["line_items"]
+    ]
+    assert "Scribble Pocket Tee (M)" in line_names
+    assert "Shipping" in line_names
+    assert stripe_checkout["last_kwargs"]["customer_email"] == "buyer@example.com"
 
     assert client.get("/cart").get_json()["item_count"] == 0
     assert client.get(f"/orders/{order['id']}").status_code == 200
@@ -165,8 +217,23 @@ def test_cart_checkout_reserves_stock_and_hides_the_order(client, app):
     assert client.post("/checkout", json=SHIPPING).status_code == 400
 
     activity = client.get("/activity").get_json()
-    assert any(item["title"] == f"Order #{order['id']} placed" for item in activity)
+    assert any(item["title"] == f"Order #{order['id']} awaiting payment" for item in activity)
     assert client.get("/metrics").get_json()[1]["value"] == "1"
+    assert client.get("/metrics").get_json()[1]["hint"] == "Awaiting Stripe payment"
+
+    session_id = stripe_checkout["last"].id
+    waiting = client.get(f"/checkout/confirm?session_id={session_id}")
+    assert waiting.get_json()["status"] == "pending"
+
+    stripe_checkout["last"].payment_status = "paid"
+    stripe_checkout["last"].payment_intent = "pi_test_123"
+    paid = client.get(f"/checkout/confirm?session_id={session_id}")
+    assert paid.status_code == 200
+    assert paid.get_json()["status"] == "paid"
+    assert client.get(f"/products/{tee['id']}").get_json()["stock"] == tee["stock"] - 1
+
+    paid_again = client.get(f"/checkout/confirm?session_id={session_id}")
+    assert paid_again.get_json()["status"] == "paid"
 
 
 def test_stock_and_size_limits(client):
@@ -244,6 +311,86 @@ def test_accounts(client, app):
     )
     assert signed_in.status_code == 200
     assert other.get(f"/orders/{order_id}").status_code == 200
+
+
+def test_checkout_requires_a_stripe_key(client, app):
+    app.config["STRIPE_SECRET_KEY"] = ""
+    tee = client.get("/products/slug/scribble-pocket-tee").get_json()
+    client.post("/cart/items", json={"product_id": tee["id"], "quantity": 1})
+    response = client.post("/checkout", json=SHIPPING)
+    assert response.status_code == 503
+    assert "STRIPE_SECRET_KEY" in response.get_json()["message"]
+    assert client.get(f"/products/{tee['id']}").get_json()["stock"] == tee["stock"]
+
+
+def test_stripe_failure_keeps_the_cart(client, monkeypatch):
+    def explode(**kwargs):
+        raise stripe.StripeError("Stripe is down")
+
+    monkeypatch.setattr("stripe.checkout.Session.create", explode)
+    tee = client.get("/products/slug/scribble-pocket-tee").get_json()
+    client.post("/cart/items", json={"product_id": tee["id"], "quantity": 1})
+    response = client.post("/checkout", json=SHIPPING)
+    assert response.status_code == 502
+    assert client.get("/cart").get_json()["item_count"] == 1
+    assert client.get(f"/products/{tee['id']}").get_json()["stock"] == tee["stock"]
+
+
+def test_webhook_marks_order_paid_and_expiry_returns_stock(client, stripe_checkout, monkeypatch):
+    tee = client.get("/products/slug/scribble-pocket-tee").get_json()
+    client.post("/cart/items", json={"product_id": tee["id"], "quantity": 1})
+    placed = client.post("/checkout", json=SHIPPING)
+    order_id = placed.get_json()["order"]["id"]
+    session_id = stripe_checkout["last"].id
+
+    def construct_event(payload, sig, secret):
+        return {"type": events["type"], "data": {"object": {"id": session_id}}}
+
+    events = {"type": "checkout.session.completed"}
+    monkeypatch.setattr("stripe.Webhook.construct_event", construct_event)
+
+    unpaid = client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "t=1,v1=test"})
+    assert unpaid.status_code == 200
+    assert client.get(f"/orders/{order_id}").get_json()["status"] == "pending"
+
+    stripe_checkout["last"].payment_status = "paid"
+    stripe_checkout["last"].payment_intent = "pi_test_webhook"
+    paid = client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "t=1,v1=test"})
+    assert paid.status_code == 200
+    assert client.get(f"/orders/{order_id}").get_json()["status"] == "paid"
+    assert client.get(f"/products/{tee['id']}").get_json()["stock"] == tee["stock"] - 1
+
+    events["type"] = "checkout.session.expired"
+    expired = client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "t=1,v1=test"})
+    assert expired.status_code == 200
+    assert client.get(f"/orders/{order_id}").get_json()["status"] == "paid"
+    assert client.get(f"/products/{tee['id']}").get_json()["stock"] == tee["stock"] - 1
+
+
+def test_expired_checkout_returns_stock(client, stripe_checkout, monkeypatch):
+    tee = client.get("/products/slug/margin-note-tee").get_json()
+    client.post("/cart/items", json={"product_id": tee["id"], "quantity": 2})
+    placed = client.post("/checkout", json=SHIPPING)
+    order_id = placed.get_json()["order"]["id"]
+    session_id = stripe_checkout["last"].id
+
+    def construct_event(payload, sig, secret):
+        return {"type": "checkout.session.expired", "data": {"object": {"id": session_id}}}
+
+    monkeypatch.setattr("stripe.Webhook.construct_event", construct_event)
+    response = client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "t=1,v1=test"})
+    assert response.status_code == 200
+    assert client.get(f"/orders/{order_id}").get_json()["status"] == "cancelled"
+    assert client.get(f"/products/{tee['id']}").get_json()["stock"] == tee["stock"]
+
+
+def test_webhook_rejects_a_bad_signature(client, monkeypatch):
+    def reject(payload, sig, secret):
+        raise stripe.SignatureVerificationError("bad signature", sig)
+
+    monkeypatch.setattr("stripe.Webhook.construct_event", reject)
+    response = client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "nope"})
+    assert response.status_code == 400
 
 
 def test_contact_lands_in_the_activity_feed(client):
