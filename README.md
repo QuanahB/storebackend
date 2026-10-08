@@ -68,6 +68,12 @@ These match the shop, collections, videos, sign-in, sign-up, and contact screens
 | POST | `/auth/sign-out` | |
 | GET | `/auth/me` | |
 | POST | `/contact` | `{ "name", "email", "message" }` |
+| POST | `/admin/login` | `{ "password" }` — must match `ADMIN_PASSWORD` |
+| POST | `/admin/logout` | Locks the editor. Does not clear the shopper cart |
+| GET | `/admin/session` | `{ "admin": true }` or `{ "admin": false }` |
+| POST | `/admin/products` | Staff only. Adds a piece to an existing collection |
+| PATCH | `/admin/products/<id>` | Staff only. Updates the fields you send |
+| DELETE | `/admin/products/<id>` | Staff only. Refused after the piece has been ordered |
 | GET | `/health` | `{ "status": "ok", "database": "connected" }` |
 
 Prices are JSON numbers in US dollars. Shipping is $8, and free when the subtotal is $120 or more. `POST /checkout` reserves that stock and opens Stripe Checkout. The order stays `pending` until Stripe reports the payment as paid. An expired Checkout session cancels the order and puts the pieces back.
@@ -100,4 +106,4 @@ pytest
 gunicorn app:app --bind 0.0.0.0:$PORT
 ```
 
-Set `SECRET_KEY`, `STRIPE_SECRET_KEY`, and `STRIPE_WEBHOOK_SECRET`. Set `CORS_ORIGINS` and `FRONTEND_ORIGIN` to the deployed MockMSPaint origin. Set `DATABASE_URL` for Postgres (`postgres://` and `postgresql://` are accepted). For a cookie across two sites, set `SESSION_COOKIE_SAMESITE=None` and `SESSION_COOKIE_SECURE=true`. In the Stripe Dashboard, point a webhook at `https://<your-api>/stripe/webhook` for `checkout.session.completed` and `checkout.session.expired`.
+Set `SECRET_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `ADMIN_PASSWORD`. Set `CORS_ORIGINS` and `FRONTEND_ORIGIN` to the deployed MockMSPaint origin. Set `DATABASE_URL` for Postgres (`postgres://` and `postgresql://` are accepted). For a cookie across two sites, set `SESSION_COOKIE_SAMESITE=None` and `SESSION_COOKIE_SECURE=true`. In the Stripe Dashboard, point a webhook at `https://<your-api>/stripe/webhook` for `checkout.session.completed` and `checkout.session.expired`.

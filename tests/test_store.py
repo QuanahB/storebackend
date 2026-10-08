@@ -393,6 +393,77 @@ def test_webhook_rejects_a_bad_signature(client, monkeypatch):
     assert response.status_code == 400
 
 
+def test_admin_can_add_edit_and_remove_a_piece(client, app):
+    app.config["ADMIN_PASSWORD"] = "studio-secret"
+    created_body = {
+        "name": "Ink Test Tee",
+        "description": "A staff-added tee.",
+        "price": 40,
+        "category": "tees",
+        "collection": "scribble-drop",
+        "sizes": ["M", "L"],
+        "colors": ["ink"],
+        "stock": 5,
+    }
+
+    locked = client.post("/admin/products", json=created_body)
+    assert locked.status_code == 401
+    assert client.get("/admin/session").get_json()["admin"] is False
+
+    rejected = client.post("/admin/login", json={"password": "nope"})
+    assert rejected.status_code == 401
+
+    signed_in = client.post("/admin/login", json={"password": "studio-secret"})
+    assert signed_in.status_code == 200
+    assert signed_in.get_json()["admin"] is True
+
+    created = client.post("/admin/products", json=created_body)
+    assert created.status_code == 201
+    product = created.get_json()
+    assert product["slug"] == "ink-test-tee"
+    assert product["price"] == 40.0
+    assert product["collection"] == "scribble-drop"
+
+    patched = client.patch(
+        f"/admin/products/{product['id']}",
+        json={"price": 42, "stock": 0, "name": "Ink Test Tee Revised"},
+    )
+    assert patched.status_code == 200
+    assert patched.get_json()["price"] == 42.0
+    assert patched.get_json()["stock"] == 0
+    assert patched.get_json()["name"] == "Ink Test Tee Revised"
+
+    listed = [item["slug"] for item in client.get("/products").get_json()]
+    assert "ink-test-tee" in listed
+
+    removed = client.delete(f"/admin/products/{product['id']}")
+    assert removed.status_code == 200
+    listed = [item["slug"] for item in client.get("/products").get_json()]
+    assert "ink-test-tee" not in listed
+
+    client.post("/admin/logout")
+    assert client.get("/admin/session").get_json()["admin"] is False
+
+
+def test_admin_cannot_delete_an_ordered_piece(client, app):
+    app.config["ADMIN_PASSWORD"] = "studio-secret"
+    client.post("/admin/login", json={"password": "studio-secret"})
+    tee = client.get("/products/slug/scribble-pocket-tee").get_json()
+    client.post("/cart/items", json={"product_id": tee["id"], "quantity": 1})
+    placed = client.post("/checkout", json=SHIPPING)
+    assert placed.status_code == 201
+
+    denied = client.delete(f"/admin/products/{tee['id']}")
+    assert denied.status_code == 409
+    assert client.get(f"/products/{tee['id']}").status_code == 200
+
+
+def test_admin_login_requires_a_configured_password(client, app):
+    app.config["ADMIN_PASSWORD"] = ""
+    response = client.post("/admin/login", json={"password": "studio-secret"})
+    assert response.status_code == 503
+
+
 def test_contact_lands_in_the_activity_feed(client):
     missing = client.post("/contact", json={"name": "Jordan", "email": "not-an-email", "message": "Hi"})
     assert missing.status_code == 400

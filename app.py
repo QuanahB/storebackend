@@ -58,6 +58,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     db.init_app(app)
     CORS(app, origins=app.config["CORS_ORIGINS"], supports_credentials=True)
 
+    from routes.admin import admin_bp
     from routes.auth import auth_bp
     from routes.cart import cart_bp
     from routes.catalog import catalog_bp
@@ -65,7 +66,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     from routes.contact import contact_bp
     from routes.dashboard import dashboard_bp
 
-    for blueprint in (catalog_bp, cart_bp, checkout_bp, auth_bp, contact_bp, dashboard_bp):
+    for blueprint in (catalog_bp, cart_bp, checkout_bp, auth_bp, contact_bp, dashboard_bp, admin_bp):
         app.register_blueprint(blueprint)
 
     @app.get("/")
