@@ -40,6 +40,8 @@ class Config:
     STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
     # Signing secret (whsec_...) from `stripe listen` or the Dashboard webhook.
     STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    # Shared staff password for catalog edits. Shoppers never use this.
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
     MAX_CONTENT_LENGTH = 1_000_000
 
     # Flat shipping until a carrier rate is connected. Free over this subtotal.
