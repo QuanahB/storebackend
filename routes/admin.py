@@ -7,7 +7,7 @@ from decimal import InvalidOperation
 from flask import Blueprint, jsonify, request, session
 
 from extensions import db
-from models import CartItem, Collection, OrderItem, Product, utcnow
+from models import BoardNote, CartItem, Collection, OrderItem, Product, utcnow
 from seed import CATEGORIES
 from serializers import as_decimal, product_to_dict
 
@@ -44,6 +44,21 @@ def admin_logout():
     """POST /admin/logout — locks the catalog editor. The shopper cart stays."""
     session.pop("is_admin", None)
     return jsonify(admin=False)
+
+
+@admin_bp.delete("/admin/board/<int:note_id>")
+def delete_board_note(note_id: int):
+    """DELETE /admin/board/:id — staff removes one anonymous note."""
+    blocked = _require_admin()
+    if blocked:
+        return blocked
+
+    note = db.session.get(BoardNote, note_id)
+    if note is None:
+        return jsonify(message="Note not found"), 404
+    db.session.delete(note)
+    db.session.commit()
+    return jsonify(message="Note removed")
 
 
 @admin_bp.post("/admin/products")

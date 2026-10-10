@@ -60,13 +60,23 @@ def create_app(config_overrides: dict | None = None) -> Flask:
 
     from routes.admin import admin_bp
     from routes.auth import auth_bp
+    from routes.board import board_bp
     from routes.cart import cart_bp
     from routes.catalog import catalog_bp
     from routes.checkout import checkout_bp
     from routes.contact import contact_bp
     from routes.dashboard import dashboard_bp
 
-    for blueprint in (catalog_bp, cart_bp, checkout_bp, auth_bp, contact_bp, dashboard_bp, admin_bp):
+    for blueprint in (
+        catalog_bp,
+        cart_bp,
+        checkout_bp,
+        auth_bp,
+        contact_bp,
+        dashboard_bp,
+        admin_bp,
+        board_bp,
+    ):
         app.register_blueprint(blueprint)
 
     @app.get("/")

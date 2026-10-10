@@ -144,6 +144,16 @@ class OrderItem(db.Model):
     order = db.relationship("Order", back_populates="items")
 
 
+class BoardNote(db.Model):
+    """A public anonymous note for the Paint status bar."""
+
+    __tablename__ = "board_notes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    message = db.Column(db.String(240), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 class ContactMessage(db.Model):
     """A note from the contact form."""
 

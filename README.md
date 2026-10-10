@@ -68,6 +68,9 @@ These match the shop, collections, videos, sign-in, sign-up, and contact screens
 | POST | `/auth/sign-out` | |
 | GET | `/auth/me` | |
 | POST | `/contact` | `{ "name", "email", "message" }` |
+| GET | `/board` | Newest anonymous notes. Each is `{ id, message, created_at }` |
+| POST | `/board` | `{ "message" }` only. 240 characters, one post every 30 seconds per browser |
+| DELETE | `/admin/board/<id>` | Staff only. Removes one note |
 | POST | `/admin/login` | `{ "password" }` — must match `ADMIN_PASSWORD` |
 | POST | `/admin/logout` | Locks the editor. Does not clear the shopper cart |
 | GET | `/admin/session` | `{ "admin": true }` or `{ "admin": false }` |

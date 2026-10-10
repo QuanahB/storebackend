@@ -479,6 +479,82 @@ def test_contact_lands_in_the_activity_feed(client):
     assert client.get("/metrics").get_json()[2]["value"] == "1"
 
 
+def test_anonymous_board_lists_newest_notes(client, app):
+    assert client.get("/board").get_json() == []
+
+    blank = client.post("/board", json={"message": "   \n  "})
+    assert blank.status_code == 400
+    assert blank.get_json()["message"] == "Write a note first."
+
+    too_long = client.post("/board", json={"message": "a" * 241})
+    assert too_long.status_code == 400
+    assert "240" in too_long.get_json()["message"]
+
+    posted = client.post("/board", json={"message": "  hello   canvas  "})
+    assert posted.status_code == 201
+    note = posted.get_json()
+    assert set(note) == {"id", "message", "created_at"}
+    assert note["message"] == "hello canvas"
+
+    cooled = client.post("/board", json={"message": "too soon"})
+    assert cooled.status_code == 429
+    assert cooled.get_json()["message"] == "Wait a moment before posting again."
+
+    other = app.test_client()
+    second = other.post("/board", json={"message": "second note"})
+    assert second.status_code == 201
+
+    listed = client.get("/board").get_json()
+    assert [item["message"] for item in listed] == ["second note", "hello canvas"]
+
+    with app.app_context():
+        from models import ContactMessage
+
+        assert ContactMessage.query.count() == 0
+
+
+def test_board_keeps_the_newest_forty(app):
+    for number in range(41):
+        response = app.test_client().post("/board", json={"message": f"note {number}"})
+        assert response.status_code == 201
+
+    listed = app.test_client().get("/board").get_json()
+    assert len(listed) == 40
+    assert listed[0]["message"] == "note 40"
+    assert listed[-1]["message"] == "note 1"
+
+
+def test_staff_can_remove_a_board_note(client, app):
+    app.config["ADMIN_PASSWORD"] = "studio-secret"
+    posted = client.post("/board", json={"message": "scratch this"})
+    note_id = posted.get_json()["id"]
+
+    stranger = app.test_client()
+    denied = stranger.delete(f"/admin/board/{note_id}")
+    assert denied.status_code == 401
+
+    locked = client.delete(f"/admin/board/{note_id}")
+    assert locked.status_code == 401
+    assert client.get("/board").get_json()[0]["message"] == "scratch this"
+
+    client.post("/admin/login", json={"password": "studio-secret"})
+    removed = client.delete(f"/admin/board/{note_id}")
+    assert removed.status_code == 200
+    assert removed.get_json()["message"] == "Note removed"
+    assert client.get("/board").get_json() == []
+
+    missing = client.delete(f"/admin/board/{note_id}")
+    assert missing.status_code == 404
+
+
+def test_board_delete_requires_a_configured_password(client, app):
+    app.config["ADMIN_PASSWORD"] = ""
+    posted = client.post("/board", json={"message": "stay"})
+    response = client.delete(f"/admin/board/{posted.get_json()['id']}")
+    assert response.status_code == 503
+    assert client.get("/board").get_json()[0]["message"] == "stay"
+
+
 def test_browser_origin_is_allowed(client):
     response = client.get("/products", headers={"Origin": "http://localhost:4321"})
     assert response.headers["Access-Control-Allow-Origin"] == "http://localhost:4321"
