@@ -43,6 +43,8 @@ class Product(db.Model):
     colors = db.Column(db.JSON, nullable=False)
     stock = db.Column(db.Integer, nullable=False, default=0)
     initial_stock = db.Column(db.Integer, nullable=False, default=0)
+    # Public https address of a hosted photo. Null keeps the generated canvas.
+    image_url = db.Column(db.String(2000), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
 

@@ -458,6 +458,78 @@ def test_admin_cannot_delete_an_ordered_piece(client, app):
     assert client.get(f"/products/{tee['id']}").status_code == 200
 
 
+def test_staff_can_attach_and_clear_a_product_photo(client, app):
+    app.config["ADMIN_PASSWORD"] = "studio-secret"
+    client.post("/admin/login", json={"password": "studio-secret"})
+    tee = client.get("/products/slug/scribble-pocket-tee").get_json()
+    assert tee["image_url"].endswith("/media/scribble-pocket-tee.svg")
+
+    rejected = client.patch(
+        f"/admin/products/{tee['id']}",
+        json={"image_url": "http://example.com/tee.jpg"},
+    )
+    assert rejected.status_code == 400
+    assert rejected.get_json()["message"] == "Image link must be an https address."
+    uppercase = client.patch(
+        f"/admin/products/{tee['id']}",
+        json={"image_url": "HTTPS://cdn.example.com/tee.jpg"},
+    )
+    assert uppercase.status_code == 200
+    assert uppercase.get_json()["image_url"] == "HTTPS://cdn.example.com/tee.jpg"
+
+    photo = "https://res.cloudinary.com/oimadis/image/upload/scribble-pocket-tee.jpg"
+    saved = client.patch(
+        f"/admin/products/{tee['id']}",
+        json={"image_url": f"  {photo}  "},
+    )
+    assert saved.status_code == 200
+    assert saved.get_json()["image_url"] == photo
+
+    priced = client.patch(f"/admin/products/{tee['id']}", json={"price": 48})
+    assert priced.get_json()["image_url"] == photo
+
+    added = client.post(
+        "/cart/items",
+        json={"product_id": tee["id"], "quantity": 1, "size": "M"},
+    )
+    assert added.get_json()["items"][0]["product"]["image_url"] == photo
+
+    cleared = client.patch(f"/admin/products/{tee['id']}", json={"image_url": ""})
+    assert cleared.status_code == 200
+    assert cleared.get_json()["image_url"].endswith("/media/scribble-pocket-tee.svg")
+
+    created = client.post(
+        "/admin/products",
+        json={
+            "name": "Photo Tee",
+            "description": "A tee with a hosted photo.",
+            "price": 36,
+            "category": "tees",
+            "collection": "scribble-drop",
+            "sizes": ["M"],
+            "colors": ["ink"],
+            "stock": 3,
+            "image_url": "https://ik.imagekit.io/oimadis/photo-tee.jpg",
+        },
+    )
+    assert created.status_code == 201
+    assert created.get_json()["image_url"] == "https://ik.imagekit.io/oimadis/photo-tee.jpg"
+
+
+def test_existing_products_table_gains_an_image_column(app):
+    from sqlalchemy import text
+
+    from extensions import db
+    from schema import ensure_sqlite_columns
+
+    with app.app_context():
+        db.session.execute(text("ALTER TABLE products DROP COLUMN image_url"))
+        db.session.commit()
+        ensure_sqlite_columns()
+        rows = db.session.execute(text("PRAGMA table_info(products)")).all()
+    assert "image_url" in {row[1] for row in rows}
+
+
 def test_admin_login_requires_a_configured_password(client, app):
     app.config["ADMIN_PASSWORD"] = ""
     response = client.post("/admin/login", json={"password": "studio-secret"})

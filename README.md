@@ -74,8 +74,8 @@ These match the shop, collections, videos, sign-in, sign-up, and contact screens
 | POST | `/admin/login` | `{ "password" }` — must match `ADMIN_PASSWORD` |
 | POST | `/admin/logout` | Locks the editor. Does not clear the shopper cart |
 | GET | `/admin/session` | `{ "admin": true }` or `{ "admin": false }` |
-| POST | `/admin/products` | Staff only. Adds a piece to an existing collection |
-| PATCH | `/admin/products/<id>` | Staff only. Updates the fields you send |
+| POST | `/admin/products` | Staff only. Adds a piece to an existing collection. Optional `image_url` is an `https` photo link |
+| PATCH | `/admin/products/<id>` | Staff only. Updates the fields you send. `image_url: ""` clears the photo |
 | DELETE | `/admin/products/<id>` | Staff only. Refused after the piece has been ordered |
 | GET | `/health` | `{ "status": "ok", "database": "connected" }` |
 

@@ -97,7 +97,7 @@ def product_to_dict(product: Product) -> dict:
         "sizes": list(product.sizes or []),
         "colors": list(product.colors or []),
         "stock": product.stock,
-        "image_url": f"/media/{product.slug}.svg",
+        "image_url": product.image_url or f"/media/{product.slug}.svg",
     }
 
 
