@@ -1,4 +1,4 @@
-"""Add columns that create_all() will not add to a database created before Stripe."""
+"""Add columns that create_all() will not add to a database that already exists."""
 
 from sqlalchemy import text
 
@@ -6,7 +6,12 @@ from extensions import db
 
 
 def ensure_sqlite_columns() -> None:
-    """SQLite create_all leaves an existing orders table as-is. Add the Stripe ids."""
+    """Add columns introduced after the first deploy. create_all() leaves old tables as-is."""
+    _ensure_order_stripe_columns()
+    _ensure_product_image_column()
+
+
+def _ensure_order_stripe_columns() -> None:
     uri = db.engine.url.drivername
     if not uri.startswith("sqlite"):
         return
@@ -27,4 +32,21 @@ def ensure_sqlite_columns() -> None:
     for statement in statements:
         db.session.execute(text(statement))
     if statements:
+        db.session.commit()
+
+
+def _ensure_product_image_column() -> None:
+    uri = db.engine.url.drivername
+    if uri.startswith("sqlite"):
+        rows = db.session.execute(text("PRAGMA table_info(products)")).all()
+        if not rows or any(row[1] == "image_url" for row in rows):
+            return
+        db.session.execute(text("ALTER TABLE products ADD COLUMN image_url VARCHAR(2000)"))
+        db.session.commit()
+        return
+
+    if uri.startswith("postgresql"):
+        db.session.execute(
+            text("ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url VARCHAR(2000)")
+        )
         db.session.commit()

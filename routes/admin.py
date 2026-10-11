@@ -226,6 +226,12 @@ def _parse_product(body: dict, *, partial: bool):
     elif not partial:
         parsed["slug"] = _slugify(parsed["name"])
 
+    if "image_url" in body:
+        image_url, error = _image_url(body.get("image_url"))
+        if error:
+            return None, error
+        parsed["image_url"] = image_url
+
     return parsed, None
 
 
@@ -250,6 +256,23 @@ def _whole_number(raw, allow_zero: bool):
     if raw < 0 or (raw == 0 and not allow_zero):
         return None, (jsonify(message="stock must be a whole number."), 400)
     return raw, None
+
+
+def _image_url(raw):
+    """A hosted photo link. Blank clears it and the shop falls back to the canvas."""
+    if raw is None:
+        return None, None
+    if not isinstance(raw, str):
+        return None, (jsonify(message="Image link must be an https address."), 400)
+    url = raw.strip()
+    if not url:
+        return None, None
+    if len(url) > 2000 or any(character.isspace() for character in url):
+        return None, (jsonify(message="Image link must be an https address."), 400)
+    scheme, separator, rest = url.partition("://")
+    if separator != "://" or scheme.lower() != "https" or rest.strip("/") == "":
+        return None, (jsonify(message="Image link must be an https address."), 400)
+    return url, None
 
 
 def _slugify(value: str) -> str:
