@@ -102,16 +102,17 @@ def product_to_dict(product: Product) -> dict:
 
 
 def collection_to_dict(collection: Collection, *, include_products: bool = False) -> dict:
+    products = sorted(collection.products, key=lambda item: item.id)
     payload = {
         "id": collection.id,
         "slug": collection.slug,
         "name": collection.name,
         "description": collection.description,
         "season": collection.season,
-        "product_count": len(collection.products),
+        "product_count": len(products),
+        "image_url": product_to_dict(products[0])["image_url"] if products else None,
     }
     if include_products:
-        products = sorted(collection.products, key=lambda item: item.id)
         payload["products"] = [product_to_dict(product) for product in products]
     return payload
 

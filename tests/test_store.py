@@ -124,9 +124,21 @@ def test_collections_and_videos(client):
         "night-shift",
     ]
 
+    listed = {collection["slug"]: collection for collection in collections}
+    assert listed["scribble-drop"]["name"] == "Scribble Drop"
+    assert listed["scribble-drop"]["season"] == "Fall 2026"
+    assert listed["scribble-drop"]["product_count"] == 3
+    assert listed["scribble-drop"]["image_url"].endswith("/media/scribble-pocket-tee.svg")
+
     drop = client.get("/collections/scribble-drop").get_json()
     assert drop["product_count"] == 3
+    assert drop["image_url"] == listed["scribble-drop"]["image_url"]
     assert len(drop["products"]) == 3
+    assert [product["slug"] for product in drop["products"]] == [
+        "scribble-pocket-tee",
+        "margin-note-tee",
+        "sketch-long-sleeve",
+    ]
 
     videos = client.get("/videos").get_json()
     assert len(videos) == 3
