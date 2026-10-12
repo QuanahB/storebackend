@@ -49,7 +49,7 @@ These match the shop, collections, videos, sign-in, sign-up, and contact screens
 | GET | `/products/<id>` | |
 | GET | `/products/slug/<slug>` | |
 | GET | `/categories` | Toolbox groups with counts |
-| GET | `/collections` | Each drop includes `image_url`, the first piece's picture |
+| GET | `/collections` | Each drop includes `image_url` (its cover, or the first piece's picture) and `custom_image_url` (the saved cover, or null) |
 | GET | `/collections/<slug>` | That drop plus its `products` |
 | GET | `/videos` | `url` is null until a clip is hosted |
 | GET | `/media/<slug>.svg` | Paint-canvas product image |
@@ -74,6 +74,9 @@ These match the shop, collections, videos, sign-in, sign-up, and contact screens
 | POST | `/admin/login` | `{ "password" }` — must match `ADMIN_PASSWORD` |
 | POST | `/admin/logout` | Locks the editor. Does not clear the shopper cart |
 | GET | `/admin/session` | `{ "admin": true }` or `{ "admin": false }` |
+| POST | `/admin/collections` | Staff only. `{ "name", "description", "season", "image_url"? }` |
+| PATCH | `/admin/collections/<id>` | Staff only. Updates the fields you send. `image_url: ""` clears the cover |
+| DELETE | `/admin/collections/<id>` | Staff only. Refused while the drop still has pieces |
 | POST | `/admin/products` | Staff only. Adds a piece to an existing collection. Optional `image_url` is an `https` photo link |
 | PATCH | `/admin/products/<id>` | Staff only. Updates the fields you send. `image_url: ""` clears the photo |
 | DELETE | `/admin/products/<id>` | Staff only. Refused after the piece has been ordered |

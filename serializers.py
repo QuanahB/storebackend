@@ -103,6 +103,7 @@ def product_to_dict(product: Product) -> dict:
 
 def collection_to_dict(collection: Collection, *, include_products: bool = False) -> dict:
     products = sorted(collection.products, key=lambda item: item.id)
+    fallback = product_to_dict(products[0])["image_url"] if products else None
     payload = {
         "id": collection.id,
         "slug": collection.slug,
@@ -110,7 +111,8 @@ def collection_to_dict(collection: Collection, *, include_products: bool = False
         "description": collection.description,
         "season": collection.season,
         "product_count": len(products),
-        "image_url": product_to_dict(products[0])["image_url"] if products else None,
+        "image_url": collection.image_url or fallback,
+        "custom_image_url": collection.image_url,
     }
     if include_products:
         payload["products"] = [product_to_dict(product) for product in products]

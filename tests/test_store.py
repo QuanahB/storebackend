@@ -129,6 +129,7 @@ def test_collections_and_videos(client):
     assert listed["scribble-drop"]["season"] == "Fall 2026"
     assert listed["scribble-drop"]["product_count"] == 3
     assert listed["scribble-drop"]["image_url"].endswith("/media/scribble-pocket-tee.svg")
+    assert listed["scribble-drop"]["custom_image_url"] is None
 
     drop = client.get("/collections/scribble-drop").get_json()
     assert drop["product_count"] == 3
@@ -528,6 +529,86 @@ def test_staff_can_attach_and_clear_a_product_photo(client, app):
     assert created.get_json()["image_url"] == "https://ik.imagekit.io/oimadis/photo-tee.jpg"
 
 
+def test_staff_can_add_edit_and_remove_a_collection(client, app):
+    app.config["ADMIN_PASSWORD"] = "studio-secret"
+    locked = client.post(
+        "/admin/collections",
+        json={"name": "Ink Drop", "description": "A new drop.", "season": "Spring 2027"},
+    )
+    assert locked.status_code == 401
+
+    client.post("/admin/login", json={"password": "studio-secret"})
+    rejected = client.post(
+        "/admin/collections",
+        json={
+            "name": "Ink Drop",
+            "description": "A new drop.",
+            "season": "Spring 2027",
+            "image_url": "http://example.com/cover.jpg",
+        },
+    )
+    assert rejected.status_code == 400
+
+    created = client.post(
+        "/admin/collections",
+        json={
+            "name": "Ink Drop",
+            "description": "A new drop.",
+            "season": "Spring 2027",
+            "image_url": "  https://res.cloudinary.com/oimadis/image/upload/ink-drop.jpg  ",
+        },
+    )
+    assert created.status_code == 201
+    drop = created.get_json()
+    assert drop["slug"] == "ink-drop"
+    assert drop["image_url"] == "https://res.cloudinary.com/oimadis/image/upload/ink-drop.jpg"
+    assert drop["custom_image_url"] == drop["image_url"]
+    assert drop["product_count"] == 0
+
+    renamed = client.patch(
+        f"/admin/collections/{drop['id']}",
+        json={"name": "Ink Drop Revised", "season": "Summer 2027"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.get_json()["name"] == "Ink Drop Revised"
+    assert renamed.get_json()["slug"] == "ink-drop"
+    assert renamed.get_json()["season"] == "Summer 2027"
+
+    cleared = client.patch(f"/admin/collections/{drop['id']}", json={"image_url": ""})
+    assert cleared.status_code == 200
+    assert cleared.get_json()["image_url"] is None
+    assert cleared.get_json()["custom_image_url"] is None
+
+    scribble = client.get("/collections/scribble-drop").get_json()
+    occupied = client.delete(f"/admin/collections/{scribble['id']}")
+    assert occupied.status_code == 409
+    assert client.get("/collections/scribble-drop").status_code == 200
+
+    removed = client.delete(f"/admin/collections/{drop['id']}")
+    assert removed.status_code == 200
+    assert removed.get_json()["message"] == "Collection removed"
+    slugs = [item["slug"] for item in client.get("/collections").get_json()]
+    assert "ink-drop" not in slugs
+
+
+def test_renaming_a_collection_slug_keeps_its_video(client, app):
+    app.config["ADMIN_PASSWORD"] = "studio-secret"
+    client.post("/admin/login", json={"password": "studio-secret"})
+    scribble = client.get("/collections/scribble-drop").get_json()
+    renamed = client.patch(
+        f"/admin/collections/{scribble['id']}",
+        json={"slug": "ink-drop"},
+    )
+    assert renamed.status_code == 200
+    assert client.get("/collections/scribble-drop").status_code == 404
+    assert client.get("/collections/ink-drop").status_code == 200
+    assert client.get("/products/slug/scribble-pocket-tee").get_json()["collection"] == "ink-drop"
+
+    videos = client.get("/videos").get_json()
+    clip = next(video for video in videos if video["slug"] == "drawing-the-scribble-pocket")
+    assert clip["collection"] == "ink-drop"
+
+
 def test_existing_products_table_gains_an_image_column(app):
     from sqlalchemy import text
 
@@ -536,10 +617,13 @@ def test_existing_products_table_gains_an_image_column(app):
 
     with app.app_context():
         db.session.execute(text("ALTER TABLE products DROP COLUMN image_url"))
+        db.session.execute(text("ALTER TABLE collections DROP COLUMN image_url"))
         db.session.commit()
         ensure_sqlite_columns()
-        rows = db.session.execute(text("PRAGMA table_info(products)")).all()
-    assert "image_url" in {row[1] for row in rows}
+        product_rows = db.session.execute(text("PRAGMA table_info(products)")).all()
+        collection_rows = db.session.execute(text("PRAGMA table_info(collections)")).all()
+    assert "image_url" in {row[1] for row in product_rows}
+    assert "image_url" in {row[1] for row in collection_rows}
 
 
 def test_admin_login_requires_a_configured_password(client, app):
