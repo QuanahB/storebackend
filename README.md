@@ -49,8 +49,8 @@ These match the shop, collections, videos, sign-in, sign-up, and contact screens
 | GET | `/products/<id>` | |
 | GET | `/products/slug/<slug>` | |
 | GET | `/categories` | Toolbox groups with counts |
-| GET | `/collections` | |
-| GET | `/collections/<slug>` | Includes that drop's products |
+| GET | `/collections` | Each drop includes `image_url`, the first piece's picture |
+| GET | `/collections/<slug>` | That drop plus its `products` |
 | GET | `/videos` | `url` is null until a clip is hosted |
 | GET | `/media/<slug>.svg` | Paint-canvas product image |
 | GET | `/cart` | Session cart |
