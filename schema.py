@@ -9,6 +9,7 @@ def ensure_sqlite_columns() -> None:
     """Add columns introduced after the first deploy. create_all() leaves old tables as-is."""
     _ensure_order_stripe_columns()
     _ensure_product_image_column()
+    _ensure_collection_image_column()
 
 
 def _ensure_order_stripe_columns() -> None:
@@ -48,5 +49,22 @@ def _ensure_product_image_column() -> None:
     if uri.startswith("postgresql"):
         db.session.execute(
             text("ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url VARCHAR(2000)")
+        )
+        db.session.commit()
+
+
+def _ensure_collection_image_column() -> None:
+    uri = db.engine.url.drivername
+    if uri.startswith("sqlite"):
+        rows = db.session.execute(text("PRAGMA table_info(collections)")).all()
+        if not rows or any(row[1] == "image_url" for row in rows):
+            return
+        db.session.execute(text("ALTER TABLE collections ADD COLUMN image_url VARCHAR(2000)"))
+        db.session.commit()
+        return
+
+    if uri.startswith("postgresql"):
+        db.session.execute(
+            text("ALTER TABLE collections ADD COLUMN IF NOT EXISTS image_url VARCHAR(2000)")
         )
         db.session.commit()

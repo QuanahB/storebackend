@@ -20,6 +20,8 @@ class Collection(db.Model):
     name = db.Column(db.String(120), nullable=False)
     description = db.Column(db.Text, nullable=False)
     season = db.Column(db.String(80), nullable=False)
+    # Public https address of a cover photo. Null uses the first piece's picture.
+    image_url = db.Column(db.String(2000), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
 
     products = db.relationship("Product", back_populates="collection")

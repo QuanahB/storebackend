@@ -7,9 +7,9 @@ from decimal import InvalidOperation
 from flask import Blueprint, jsonify, request, session
 
 from extensions import db
-from models import BoardNote, CartItem, Collection, OrderItem, Product, utcnow
+from models import BoardNote, CartItem, Collection, OrderItem, Product, Video, utcnow
 from seed import CATEGORIES
-from serializers import as_decimal, product_to_dict
+from serializers import as_decimal, collection_to_dict, product_to_dict
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -59,6 +59,80 @@ def delete_board_note(note_id: int):
     db.session.delete(note)
     db.session.commit()
     return jsonify(message="Note removed")
+
+
+@admin_bp.post("/admin/collections")
+def create_collection():
+    """POST /admin/collections — add a drop. Pieces are assigned to it afterward."""
+    blocked = _require_admin()
+    if blocked:
+        return blocked
+
+    body = request.get_json(silent=True) or {}
+    parsed, error = _parse_collection(body, partial=False)
+    if error:
+        return error
+
+    slug = _unique_collection_slug(parsed.pop("slug"))
+    collection = Collection(slug=slug, **parsed)
+    db.session.add(collection)
+    db.session.commit()
+    return jsonify(collection_to_dict(collection)), 201
+
+
+@admin_bp.patch("/admin/collections/<int:collection_id>")
+def update_collection(collection_id: int):
+    """PATCH /admin/collections/:id — change the fields included in the body."""
+    blocked = _require_admin()
+    if blocked:
+        return blocked
+
+    collection = db.session.get(Collection, collection_id)
+    if collection is None:
+        return jsonify(message="Collection not found"), 404
+
+    body = request.get_json(silent=True) or {}
+    if not body:
+        return jsonify(message="Send at least one field to change."), 400
+
+    parsed, error = _parse_collection(body, partial=True)
+    if error:
+        return error
+
+    if "slug" in parsed:
+        old_slug = collection.slug
+        slug = _unique_collection_slug(parsed.pop("slug"), ignore_id=collection.id)
+        if slug != old_slug:
+            Video.query.filter_by(collection_slug=old_slug).update({"collection_slug": slug})
+            collection.slug = slug
+
+    for key, value in parsed.items():
+        setattr(collection, key, value)
+    db.session.commit()
+    return jsonify(collection_to_dict(collection))
+
+
+@admin_bp.delete("/admin/collections/<int:collection_id>")
+def delete_collection(collection_id: int):
+    """DELETE /admin/collections/:id — refused while any piece still belongs to the drop."""
+    blocked = _require_admin()
+    if blocked:
+        return blocked
+
+    collection = db.session.get(Collection, collection_id)
+    if collection is None:
+        return jsonify(message="Collection not found"), 404
+
+    if Product.query.filter_by(collection_id=collection.id).first() is not None:
+        return (
+            jsonify(message="Move or remove this drop's pieces before deleting it."),
+            409,
+        )
+
+    Video.query.filter_by(collection_slug=collection.slug).update({"collection_slug": None})
+    db.session.delete(collection)
+    db.session.commit()
+    return jsonify(message="Collection removed")
 
 
 @admin_bp.post("/admin/products")
@@ -258,6 +332,46 @@ def _whole_number(raw, allow_zero: bool):
     return raw, None
 
 
+def _parse_collection(body: dict, *, partial: bool):
+    parsed = {}
+    required = ("name", "description", "season")
+    if not partial:
+        missing = [field for field in required if not str(body.get(field) or "").strip()]
+        if missing:
+            return None, (jsonify(message=f"Missing fields: {', '.join(missing)}"), 400)
+
+    if "name" in body or not partial:
+        name = str(body.get("name") or "").strip()
+        if not name or len(name) > 120:
+            return None, (jsonify(message="Name is required."), 400)
+        parsed["name"] = name
+
+    if "description" in body or not partial:
+        description = str(body.get("description") or "").strip()
+        if not description:
+            return None, (jsonify(message="Description is required."), 400)
+        parsed["description"] = description
+
+    if "season" in body or not partial:
+        season = str(body.get("season") or "").strip()
+        if not season or len(season) > 80:
+            return None, (jsonify(message="Season is required."), 400)
+        parsed["season"] = season
+
+    if "slug" in body and str(body.get("slug") or "").strip():
+        parsed["slug"] = _slugify(str(body["slug"]), fallback="drop")
+    elif not partial:
+        parsed["slug"] = _slugify(parsed["name"], fallback="drop")
+
+    if "image_url" in body:
+        image_url, error = _image_url(body.get("image_url"))
+        if error:
+            return None, error
+        parsed["image_url"] = image_url
+
+    return parsed, None
+
+
 def _image_url(raw):
     """A hosted photo link. Blank clears it and the shop falls back to the canvas."""
     if raw is None:
@@ -275,9 +389,21 @@ def _image_url(raw):
     return url, None
 
 
-def _slugify(value: str) -> str:
+def _slugify(value: str, fallback: str = "piece") -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return slug[:80] or "piece"
+    return slug[:80] or fallback
+
+
+def _unique_collection_slug(slug: str, ignore_id: int | None = None) -> str:
+    candidate = slug[:80]
+    number = 2
+    while True:
+        existing = Collection.query.filter_by(slug=candidate).first()
+        if existing is None or existing.id == ignore_id:
+            return candidate
+        suffix = f"-{number}"
+        candidate = f"{slug[:80 - len(suffix)]}{suffix}"
+        number += 1
 
 
 def _unique_slug(slug: str, ignore_id: int | None = None) -> str:
